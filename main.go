@@ -32,6 +32,20 @@ func readResults(r io.Reader) (*printers.JSONResult, error) {
 	return result, nil
 }
 
+type lintTest struct {
+	name string
+	enabled bool
+	issues []string
+}
+
+func (lt *lintTest) getName() string {
+	return fmt.Sprintf("linter: %s", lt.name)
+}
+
+func (lt *lintTest) failed() bool {
+	return len(lt.issues) > 0
+}
+
 const (
 	timestampFormat = "2006-01-02T15:04:05.000"
 	testStarted     = "##teamcity[testStarted timestamp='%s' name='%s']"
@@ -53,31 +67,37 @@ func mustFprintln(w io.Writer, a ...interface{}) {
 }
 
 func writeServiceMessages(w io.Writer, results *printers.JSONResult) {
-	failedTests := map[string]bool{}
+	linterTests := map[string]*lintTest{}
 
 	for _, linter := range results.Report.Linters {
-		if linter.Enabled {
-			mustFprintln(w, fmt.Sprintf(testStarted, getNow(), linter.Name))
-
-			failedTests[linter.Name] = false
-		} else {
-			mustFprintln(w, fmt.Sprintf(testIgnored, getNow(), linter.Name))
+		linterTests[linter.Name] = &lintTest{
+			name: linter.Name,
+			enabled: linter.Enabled,
 		}
 	}
 
 	for _, issue := range results.Issues {
-		mustFprintln(w, fmt.Sprintf(testStdErr, getNow(), issue.FromLinter,
+		linterTests[issue.FromLinter].issues = append(
+			linterTests[issue.FromLinter].issues,
 			fmt.Sprintf("%s:%v - %s", issue.FilePath(), issue.Line(), issue.Text),
-		))
-
-		failedTests[issue.FromLinter] = true
+		)
 	}
 
-	for _, linter := range results.Report.Linters {
-		if failedTests[linter.Name] {
-			mustFprintln(w, fmt.Sprintf(testFailed, getNow(), linter.Name))
+
+	for _, test := range linterTests {
+		mustFprintln(w, fmt.Sprintf(testStarted, getNow(), test.getName()))
+
+		if !test.enabled {
+			mustFprintln(w, fmt.Sprintf(testIgnored, getNow(), test.getName()))
 		} else {
-			mustFprintln(w, fmt.Sprintf(testFinished, getNow(), linter.Name))
+			if test.failed() {
+				for _, issue := range test.issues {
+					mustFprintln(w, fmt.Sprintf(testStdErr, getNow(), test.getName(), issue))
+				}
+				mustFprintln(w, fmt.Sprintf(testFailed, getNow(), test.getName()))
+			} else {
+				mustFprintln(w, fmt.Sprintf(testFinished, getNow(), test.getName()))
+			}
 		}
 	}
 }
