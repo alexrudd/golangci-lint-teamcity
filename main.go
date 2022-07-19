@@ -33,9 +33,10 @@ func readResults(r io.Reader) (*printers.JSONResult, error) {
 }
 
 type lintTest struct {
-	name string
-	enabled bool
-	issues []string
+	name          string
+	enabled       bool
+	defaultEnable bool
+	issues        []string
 }
 
 func (lt *lintTest) getName() string {
@@ -71,8 +72,9 @@ func writeServiceMessages(w io.Writer, results *printers.JSONResult) {
 
 	for _, linter := range results.Report.Linters {
 		linterTests[linter.Name] = &lintTest{
-			name: linter.Name,
-			enabled: linter.Enabled,
+			name:          linter.Name,
+			enabled:       linter.Enabled,
+			defaultEnable: linter.EnabledByDefault,
 		}
 	}
 
@@ -83,11 +85,10 @@ func writeServiceMessages(w io.Writer, results *printers.JSONResult) {
 		)
 	}
 
-
 	for _, test := range linterTests {
 		mustFprintln(w, fmt.Sprintf(testStarted, getNow(), test.getName()))
 
-		if !test.enabled {
+		if !test.enabled && !test.defaultEnable {
 			mustFprintln(w, fmt.Sprintf(testIgnored, getNow(), test.getName()))
 		} else {
 			if test.failed() {
