@@ -2,10 +2,12 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/golangci/golangci-lint/pkg/printers"
@@ -86,19 +88,54 @@ func writeServiceMessages(w io.Writer, results *printers.JSONResult) {
 	}
 
 	for _, test := range linterTests {
-		mustFprintln(w, fmt.Sprintf(testStarted, getNow(), test.getName()))
+		mustFprintln(w, fmt.Sprintf(testStarted, getNow(), tcEscape(test.getName())))
 
 		if !test.enabled && !test.defaultEnable {
-			mustFprintln(w, fmt.Sprintf(testIgnored, getNow(), test.getName()))
+			mustFprintln(w, fmt.Sprintf(testIgnored, getNow(), tcEscape(test.getName())))
 		} else {
 			if test.failed() {
 				for _, issue := range test.issues {
-					mustFprintln(w, fmt.Sprintf(testStdErr, getNow(), test.getName(), issue))
+					mustFprintln(w, fmt.Sprintf(testStdErr, getNow(), tcEscape(test.getName()), tcEscape(issue)))
 				}
-				mustFprintln(w, fmt.Sprintf(testFailed, getNow(), test.getName()))
+				mustFprintln(w, fmt.Sprintf(testFailed, getNow(), tcEscape(test.getName())))
 			} else {
-				mustFprintln(w, fmt.Sprintf(testFinished, getNow(), test.getName()))
+				mustFprintln(w, fmt.Sprintf(testFinished, getNow(), tcEscape(test.getName())))
 			}
 		}
+	}
+}
+
+// tcEscape transforms strings for inclusion in TeamCity service messages
+// refer to https://www.jetbrains.com/help/teamcity/service-messages.html#Escaped+values
+// for the escape sequences
+func tcEscape(input string) string {
+	var buf bytes.Buffer
+	for {
+		nextSpecial := strings.IndexAny(input, "'\n\r|[]")
+		switch nextSpecial {
+		case -1:
+			if buf.Len() == 0 {
+				return input
+			}
+			return buf.String() + input
+		case 0:
+		default:
+			buf.WriteString(input[:nextSpecial])
+		}
+		switch input[nextSpecial] {
+		case '\'':
+			buf.WriteString("|'")
+		case '\n':
+			buf.WriteString("|n")
+		case '\r':
+			buf.WriteString("|r")
+		case '|':
+			buf.WriteString("||")
+		case '[':
+			buf.WriteString("|[")
+		case ']':
+			buf.WriteString("|]")
+		}
+		input = input[nextSpecial+1:]
 	}
 }
